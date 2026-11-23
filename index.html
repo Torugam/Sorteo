@@ -70,21 +70,24 @@ const db = getFirestore(initializeApp(firebaseConfig));
 const col = collection(db, "sorteo");
 
 // ---- CONFIGURACIÓN ----
-// Cambia la semilla para obtener otro sorteo (y no se la digas a nadie).
 const SEMILLA = "limon-azul-47";
-// PIN del botón "Administrador" (cámbialo).
 const PIN_ADMIN = "0KrNUpXZ**";
 
-const familias = {
+const familiasBase = {
   Mena:  ["Marielos", "Priscila", "Joel", "Omar", "Marta"],
   Sofia: ["Kevin", "Sofia", "Eli"],
   Doris: ["Doris", "Pati", "Lupita"],
 };
+const nuevos = [{ nombre: "Lucas", familia: "Doris" }];
+// Quienes YA vieron su resultado: su amigo secreto no se toca. ¡Cámbialos por los reales!
+const NO_TOCAR = ["Marielos", "Priscila", "Joel", "Omar"];
+
 const familiaDe = {};
-for (const [f, ms] of Object.entries(familias)) ms.forEach(p => familiaDe[p] = f);
+for (const [f, ms] of Object.entries(familiasBase)) ms.forEach(p => familiaDe[p] = f);
+const personasBase = Object.keys(familiaDe);
+nuevos.forEach(n => familiaDe[n.nombre] = n.familia);
 const personas = Object.keys(familiaDe);
 
-// ---- SORTEO FIJO (mismo resultado en todos los dispositivos) ----
 function crearAleatorio(texto) {
   let h = 1779033703 ^ texto.length;
   for (let i = 0; i < texto.length; i++) {
@@ -101,17 +104,24 @@ function crearAleatorio(texto) {
 function sortear() {
   const azar = crearAleatorio(SEMILLA);
   while (true) {
-    const rec = [...personas];
+    const rec = [...personasBase];
     for (let i = rec.length - 1; i > 0; i--) {
       const j = Math.floor(azar() * (i + 1));
       [rec[i], rec[j]] = [rec[j], rec[i]];
     }
-    if (personas.every((d, i) => familiaDe[d] !== familiaDe[rec[i]])) {
-      const r = {}; personas.forEach((d, i) => r[d] = rec[i]); return r;
+    if (personasBase.every((d, i) => familiaDe[d] !== familiaDe[rec[i]])) {
+      const r = {}; personasBase.forEach((d, i) => r[d] = rec[i]); return r;
     }
   }
 }
 const asignacion = sortear();
+for (const n of nuevos) {
+  const A = personasBase.find(a => !NO_TOCAR.includes(a)
+    && familiaDe[a] !== n.familia && familiaDe[asignacion[a]] !== n.familia);
+  if (!A) { console.error("No hay a quién insertar a " + n.nombre); continue; }
+  asignacion[n.nombre] = asignacion[A];
+  asignacion[A] = n.nombre;
+}
 
 // ---- INTERFAZ ----
 const $ = id => document.getElementById(id);
