@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amigo secreto 🎁</title>
+<style>
+  :root { --bg:#fff7ed; --card:#ffffff; --text:#3b1d0a; --accent:#dc2626; --muted:#9a6b4f; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1c1410; --card:#2a1f19; --text:#fde8d7; --accent:#f87171; --muted:#c9a58c; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; display:flex; justify-content:center; padding:20px; }
+  main { width:100%; max-width:480px; text-align:center; }
+  h1 { margin:8px 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border-radius:16px; padding:20px; box-shadow:0 4px 16px rgba(0,0,0,.12); }
+  .names { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  button { font:inherit; border:0; border-radius:12px; padding:14px; cursor:pointer; background:var(--accent); color:#fff; font-weight:600; }
+  button.name { background:transparent; color:var(--text); border:2px solid var(--accent); }
+  button.ghost { background:transparent; color:var(--muted); font-weight:400; padding:8px; margin-top:16px; }
+  button:disabled { opacity:.5; cursor:default; }
+  canvas { max-width:100%; height:auto; }
+  .wheel { position:relative; width:300px; max-width:100%; margin:0 auto 16px; }
+  .pointer { position:absolute; top:-6px; left:50%; transform:translateX(-50%); font-size:28px; color:var(--accent); z-index:2; }
+  .result { font-size:1.6rem; font-weight:700; margin:12px 0; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎁 Amigo secreto</h1>
+  <p class="sub">Nadie saca a alguien de su misma familia</p>
+
+  <div class="card" id="pick">
+    <p><strong>¿Quién eres?</strong> Toca tu nombre (que nadie más mire la pantalla).</p>
+    <div class="names" id="names"></div>
+    <button class="ghost" id="reset">Mostrar todos los nombres de nuevo</button>
+  </div>
+
+  <div class="card hidden" id="spin">
+    <p id="hello"></p>
+    <div class="wheel"><div class="pointer">▼</div><canvas id="wheel" width="300" height="300"></canvas></div>
+    <button id="go">Girar la ruleta</button>
+    <div id="out" class="hidden">
+      <div class="result" id="result"></div>
+      <button id="hide">Ocultar y siguiente</button>
+    </div>
+  </div>
+
+  <div class="card hidden" id="end"><h2>¡Sorteo terminado! 🎉</h2><p>Ya todos conocen a su amigo secreto.</p></div>
+</main>
+
+<script>
+const familias = {
+  Mena:  ["Marielos", "Priscila", "Joel", "Omar", "Marta"],
+  Sofia: ["Kevin", "Sofia", "Eli"],
+  Doris: ["Doris", "Pati", "Lupita"],
+};
+const familiaDe = {};
+for (const [f, ms] of Object.entries(familias)) ms.forEach(p => familiaDe[p] = f);
+const personas = Object.keys(familiaDe);
+
+// SORTEO FIJO: todos los que abran la página ven el mismo sorteo.
+// Para obtener un sorteo distinto, cambia esta palabra (y no se la digas a nadie).
+const SEMILLA = "navidad-2026-familias";
+
+function crearAleatorio(texto) {            // generador pseudoaleatorio con semilla
+  let h = 1779033703 ^ texto.length;
+  for (let i = 0; i < texto.length; i++) {
+    h = Math.imul(h ^ texto.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19);
+  }
+  let a = h >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function sortear() {
+  const azar = crearAleatorio(SEMILLA);
+  while (true) {
+    const rec = [...personas];
+    for (let i = rec.length - 1; i > 0; i--) {  // Fisher-Yates
+      const j = Math.floor(azar() * (i + 1));
+      [rec[i], rec[j]] = [rec[j], rec[i]];
+    }
+    if (personas.every((d, i) => familiaDe[d] !== familiaDe[rec[i]])) {
+      const r = {}; personas.forEach((d, i) => r[d] = rec[i]); return r;
+    }
+  }
+}
+
+// El sorteo siempre sale de la semilla; solo se guarda qué turnos ya se vieron en este dispositivo
+const CLAVE = "amigoSecreto-" + SEMILLA;
+let hechos = [];
+try { hechos = JSON.parse(localStorage.getItem(CLAVE)) || []; } catch (e) { hechos = []; }
+const state = { asignacion: sortear(), hechos };
+function guardar() { try { localStorage.setItem(CLAVE, JSON.stringify(state.hechos)); } catch (e) {} }
+
+const $ = id => document.getElementById(id);
+const colores = ["#ef4444","#f59e0b","#10b981","#3b82f6","#8b5cf6","#ec4899","#14b8a6","#f97316"];
+let actual = null, rot = 0;
+
+function mostrarNombres() {
+  $("pick").classList.remove("hidden"); $("spin").classList.add("hidden");
+  const pend = personas.filter(p => !state.hechos.includes(p));
+  if (!pend.length) { $("pick").classList.add("hidden"); $("end").classList.remove("hidden"); return; }
+  $("names").innerHTML = "";
+  pend.forEach(p => {
+    const b = document.createElement("button");
+    b.className = "name"; b.textContent = p; b.onclick = () => elegir(p);
+    $("names").appendChild(b);
+  });
+}
+
+function candidatos() {
+  const tomados = state.hechos.map(d => state.asignacion[d]); // ya le tocaron a alguien
+  return personas.filter(p => familiaDe[p] !== familiaDe[actual] && !tomados.includes(p));
+}
+
+function dibujar() {
+  const c = $("wheel"), ctx = c.getContext("2d"), n = candidatos().length, sl = 2 * Math.PI / n;
+  ctx.clearRect(0, 0, 300, 300);
+  candidatos().forEach((nombre, i) => {
+    const a = rot + i * sl;
+    ctx.beginPath(); ctx.moveTo(150, 150); ctx.arc(150, 150, 145, a, a + sl); ctx.closePath();
+    ctx.fillStyle = colores[i % colores.length]; ctx.fill();
+    ctx.save(); ctx.translate(150, 150); ctx.rotate(a + sl / 2);
+    ctx.fillStyle = "#fff"; ctx.font = "bold 15px system-ui"; ctx.textAlign = "right";
+    ctx.fillText(nombre, 135, 5); ctx.restore();
+  });
+}
+
+function elegir(p) {
+  actual = p; rot = 0;
+  $("pick").classList.add("hidden"); $("spin").classList.remove("hidden");
+  $("hello").textContent = "Hola " + p + ", ¡gira la ruleta!";
+  $("go").disabled = false; $("go").classList.remove("hidden"); $("out").classList.add("hidden");
+  dibujar();
+}
+
+$("go").onclick = () => {
+  $("go").disabled = true;
+  const cands = candidatos(), destino = state.asignacion[actual];
+  const i = cands.indexOf(destino), sl = 2 * Math.PI / cands.length;
+  const final = (-Math.PI / 2 - (i + 0.5) * sl) + 2 * Math.PI * 6;
+  const t0 = performance.now(), dur = 4000;
+  (function paso(t) {
+    const k = Math.min((t - t0) / dur, 1);
+    rot = final * (1 - Math.pow(1 - k, 3));
+    dibujar();
+    if (k < 1) requestAnimationFrame(paso);
+    else {
+      $("go").classList.add("hidden");
+      $("result").textContent = "🎁 " + destino;
+      $("out").classList.remove("hidden");
+    }
+  })(t0);
+};
+
+$("hide").onclick = () => { state.hechos.push(actual); guardar(); mostrarNombres(); };
+$("reset").onclick = () => {
+  if (confirm("¿Volver a mostrar todos los nombres? El sorteo sigue siendo el mismo.")) {
+    state.hechos = []; guardar(); mostrarNombres();
+  }
+};
+
+mostrarNombres();
+</script>
+</body>
+</html>
